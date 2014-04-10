@@ -1,3 +1,9 @@
+This is a fork of Lua, modified to use turfs instead
+of standard file I/O. It will probably also be further
+modified in the future. Anyways, if you want to use
+this fork, you also have to use turfs.
+
+-----
 
 This is Lua 5.2.3, released on 11 Nov 2013.
 
