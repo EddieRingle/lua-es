@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <turfs/turfs.h>
+
 
 /* This file uses only the official API of Lua.
 ** Any function declared here could be written as an application function.
@@ -561,13 +563,15 @@ LUALIB_API void luaL_unref (lua_State *L, int t, int ref) {
 
 typedef struct LoadF {
   int n;  /* number of pre-read characters */
-  FILE *f;  /* file being read */
+  turfs_fp fp;  /* file being read */
   char buff[LUAL_BUFFERSIZE];  /* area for reading file */
 } LoadF;
 
 
 static const char *getF (lua_State *L, void *ud, size_t *size) {
   LoadF *lf = (LoadF *)ud;
+  long pos;
+  size_t len;
   (void)L;  /* not used */
   if (lf->n > 0) {  /* are there pre-read characters to be read? */
     *size = lf->n;  /* return them (chars already in buffer) */
@@ -577,8 +581,10 @@ static const char *getF (lua_State *L, void *ud, size_t *size) {
     /* 'fread' can return > 0 *and* set the EOF flag. If next call to
        'getF' called 'fread', it might still wait for user input.
        The next check avoids this problem. */
-    if (feof(lf->f)) return NULL;
-    *size = fread(lf->buff, 1, sizeof(lf->buff), lf->f);  /* read block */
+    turfs_file_length(lf->fp, &len);
+    turfs_file_tell(lf->fp, &pos);
+    if (pos >= len) return NULL;
+    turfs_file_read(lf->fp, lf->buff, sizeof(lf->buff), size);
   }
   return lf->buff;
 }
@@ -596,14 +602,16 @@ static int errfile (lua_State *L, const char *what, int fnameindex) {
 static int skipBOM (LoadF *lf) {
   const char *p = "\xEF\xBB\xBF";  /* Utf8 BOM mark */
   int c;
+  size_t read;
   lf->n = 0;
   do {
-    c = getc(lf->f);
-    if (c == EOF || c != *(const unsigned char *)p++) return c;
+    turfs_file_read(lf->fp, &c, 1, &read);
+    if (read < 1 || c != *(const unsigned char *)p++) return c;
     lf->buff[lf->n++] = c;  /* to be read by the parser */
   } while (*p != '\0');
   lf->n = 0;  /* prefix matched; discard it */
-  return getc(lf->f);  /* return next character */
+  turfs_file_read(lf->fp, &c, 1, NULL);
+  return c;  /* return next character */
 }
 
 
@@ -616,11 +624,12 @@ static int skipBOM (LoadF *lf) {
 */
 static int skipcomment (LoadF *lf, int *cp) {
   int c = *cp = skipBOM(lf);
+  size_t read;
   if (c == '#') {  /* first line is a comment (Unix exec. file)? */
     do {  /* skip first line */
-      c = getc(lf->f);
-    } while (c != EOF && c != '\n') ;
-    *cp = getc(lf->f);  /* skip end-of-line, if present */
+      turfs_file_read(lf->fp, &c, 1, &read);
+    } while (read != 0 && c != '\n') ;
+    turfs_file_read(lf->fp, cp, 1, NULL); /* skip end-of-line, if present */
     return 1;  /* there was a comment */
   }
   else return 0;  /* no comment */
@@ -630,34 +639,30 @@ static int skipcomment (LoadF *lf, int *cp) {
 LUALIB_API int luaL_loadfilex (lua_State *L, const char *filename,
                                              const char *mode) {
   LoadF lf;
-  int status, readstatus;
+  int status;
   int c;
   int fnameindex = lua_gettop(L) + 1;  /* index of filename on the stack */
   if (filename == NULL) {
-    lua_pushliteral(L, "=stdin");
-    lf.f = stdin;
+    return errfile(L, "no stdin", fnameindex);
   }
   else {
     lua_pushfstring(L, "@%s", filename);
-    lf.f = fopen(filename, "r");
-    if (lf.f == NULL) return errfile(L, "open", fnameindex);
+    if (turfs_file_open(filename, "r", &lf.fp) != TURFS_RET_OK) return errfile(L, "open", fnameindex);
   }
+  printf("Hey look file open succeeded.\n");
   if (skipcomment(&lf, &c))  /* read initial portion */
     lf.buff[lf.n++] = '\n';  /* add line to correct line numbers */
   if (c == LUA_SIGNATURE[0] && filename) {  /* binary file? */
-    lf.f = freopen(filename, "rb", lf.f);  /* reopen in binary mode */
-    if (lf.f == NULL) return errfile(L, "reopen", fnameindex);
+    if (lf.fp != NULL) {
+        turfs_file_close(&lf.fp);
+    }
+    if (turfs_file_open(filename, "rb", &lf.fp) != TURFS_RET_OK)return errfile(L, "reopen", fnameindex);
     skipcomment(&lf, &c);  /* re-read initial portion */
   }
-  if (c != EOF)
+  if (c != 0)
     lf.buff[lf.n++] = c;  /* 'c' is the first character of the stream */
   status = lua_load(L, getF, &lf, lua_tostring(L, -1), mode);
-  readstatus = ferror(lf.f);
-  if (filename) fclose(lf.f);  /* close file (even in case of errors) */
-  if (readstatus) {
-    lua_settop(L, fnameindex);  /* ignore results from `lua_load' */
-    return errfile(L, "read", fnameindex);
-  }
+  if (filename) turfs_file_close(&lf.fp);  /* close file (even in case of errors) */
   lua_remove(L, fnameindex);
   return status;
 }

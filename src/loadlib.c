@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <turfs/turfs.h>
 
 #define loadlib_c
 #define LUA_LIB
@@ -328,9 +329,11 @@ static int ll_loadlib (lua_State *L) {
 
 
 static int readable (const char *filename) {
-  FILE *f = fopen(filename, "r");  /* try to open file */
-  if (f == NULL) return 0;  /* open failed */
-  fclose(f);
+  turfs_fp f;
+  turfs_ret ret;
+  ret = turfs_file_open(filename, "r", &f); /* try to open file */
+  if (ret != TURFS_RET_OK || f == NULL) return 0; /* open failed */
+  turfs_file_close(&f);
   return 1;
 }
 
