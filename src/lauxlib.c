@@ -578,11 +578,12 @@ static const char *getF (lua_State *L, void *ud, size_t *size) {
     lf->n = 0;  /* no more pre-read characters */
   }
   else {  /* read a block from file */
-    /* 'fread' can return > 0 *and* set the EOF flag. If next call to
-       'getF' called 'fread', it might still wait for user input.
-       The next check avoids this problem. */
-    turfs_file_length(lf->fp, &len);
+    /* make sure we haven't gone past EOF */
     turfs_file_tell(lf->fp, &pos);
+    turfs_file_length(lf->fp, &len);
+    /* turfs_file_length reset the cursor to 0,
+       so we need to put it back where we found it. */
+    turfs_file_seek(lf->fp, pos, SEEK_SET);
     if (pos >= len) return NULL;
     turfs_file_read(lf->fp, lf->buff, sizeof(lf->buff), size);
   }
