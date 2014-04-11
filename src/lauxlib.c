@@ -650,7 +650,6 @@ LUALIB_API int luaL_loadfilex (lua_State *L, const char *filename,
     lua_pushfstring(L, "@%s", filename);
     if (turfs_file_open(filename, "r", &lf.fp) != TURFS_RET_OK) return errfile(L, "open", fnameindex);
   }
-  printf("Hey look file open succeeded.\n");
   if (skipcomment(&lf, &c))  /* read initial portion */
     lf.buff[lf.n++] = '\n';  /* add line to correct line numbers */
   if (c == LUA_SIGNATURE[0] && filename) {  /* binary file? */
